@@ -2,26 +2,25 @@ local M = {}
 
 local api = vim.api
 
-local cache = {
-  buf = {},
-  win = {},
-}
-
 ---@class infra.prefer.Descriptor
+---@field private opts {buf: number?, win: number?} @ used for api.nvim_{g,s}et_option_value
 local Descriptor = {
-  --@type {buf: number?, win: number?} used for api.nvim_{g,s}et_option_value
-  opts = nil,
   __index = function(t, k) return api.nvim_get_option_value(k, t.opts) end,
   __newindex = function(t, k, v) return api.nvim_set_option_value(k, v, t.opts) end,
+}
+
+local cache = {
+  ---@type {[number]: infra.prefer.Descriptor}
+  buf = {},
+  ---@type {[number]: infra.prefer.Descriptor}
+  win = {},
 }
 
 ---@param scope 'buf'|'win'
 ---@param checker fun(handle: number): boolean
 local function new_local_descriptor(scope, checker)
   ---@param handle number
-  ---@return infra.prefer.Descriptor
   return function(handle)
-    assert(handle and handle ~= 0)
     if not checker(handle) then error(string.format("%s#%d does not exist", scope, handle)) end
     if cache[scope][handle] == nil then cache[scope][handle] = setmetatable({ opts = { [scope] = handle } }, Descriptor) end
     return cache[scope][handle]
@@ -59,6 +58,21 @@ function M.wo(winid, k, v)
   local descriptor = M.win(winid)
   if v == nil then return descriptor[k] end
   descriptor[k] = v
+end
+
+function M.monkeypatch()
+  vim.bo = setmetatable({}, {
+    __index = function(_, k)
+      if type(k) == "number" then return M.buf(k) end
+      return M.bo(0, k)
+    end,
+  })
+  vim.wo = setmetatable({}, {
+    __index = function(_, k)
+      if type(k) == "number" then return M.win(k) end
+      return M.wo(0, k)
+    end,
+  })
 end
 
 return M
